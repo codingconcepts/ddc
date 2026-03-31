@@ -317,3 +317,111 @@ delete_files:
 		t.Errorf("IgnorePaths[1] = %q, want %q", cfg.IgnorePaths[1], ".git")
 	}
 }
+
+func TestParseNewConfigFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+root_paths:
+  - /tmp
+docker_build_cache: 2w
+docker_volume_prune: true
+homebrew_cleanup: true
+git_gc: 500MB
+git_clean_branches: true
+delete_directories:
+  node_modules: 10MB
+  .next: 50MB
+delete_files:
+  .log: 1MB
+delete_paths:
+  ~/cache: 100MB 3m
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	// Docker build cache.
+	if cfg.DockerBuildCache == nil {
+		t.Fatal("DockerBuildCache should not be nil")
+	}
+	if cfg.DockerBuildCache.Age != 14*24*time.Hour {
+		t.Errorf("DockerBuildCache.Age = %v, want 2w", cfg.DockerBuildCache.Age)
+	}
+
+	// Docker volume prune.
+	if !cfg.DockerVolumePrune {
+		t.Error("DockerVolumePrune should be true")
+	}
+
+	// Homebrew.
+	if !cfg.Homebrew {
+		t.Error("Homebrew should be true")
+	}
+
+	// Git GC.
+	if cfg.GitGC == nil {
+		t.Fatal("GitGC should not be nil")
+	}
+	if cfg.GitGC.Size != 500_000_000 {
+		t.Errorf("GitGC.Size = %d, want 500000000", cfg.GitGC.Size)
+	}
+
+	// Git clean branches.
+	if !cfg.GitCleanBranches {
+		t.Error("GitCleanBranches should be true")
+	}
+
+	// Delete directories.
+	if _, ok := cfg.DeleteDirectories[".next"]; !ok {
+		t.Error("expected .next in DeleteDirectories")
+	}
+
+	// Delete paths (tilde expanded).
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expandedKey := filepath.Join(home, "cache")
+	if _, ok := cfg.DeletePaths[expandedKey]; !ok {
+		t.Errorf("expected expanded path %q in DeletePaths, got keys: %v", expandedKey, cfg.DeletePaths)
+	}
+}
+
+func TestParseDeleteFilesLowercasesKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+root_paths:
+  - /tmp
+delete_files:
+  .DS_Store: 1B
+  .LOG: 10MB
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+
+	if _, ok := cfg.DeleteFiles[".ds_store"]; !ok {
+		t.Errorf("expected .ds_store key, got keys: %v", cfg.DeleteFiles)
+	}
+	if _, ok := cfg.DeleteFiles[".log"]; !ok {
+		t.Errorf("expected .log key, got keys: %v", cfg.DeleteFiles)
+	}
+	// Original case keys should not exist.
+	if _, ok := cfg.DeleteFiles[".DS_Store"]; ok {
+		t.Error(".DS_Store key should have been lowercased")
+	}
+}

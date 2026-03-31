@@ -3,22 +3,97 @@ root_paths:
   - ~/Movies
 
 docker_image_prefixes:
-  codingconcepts:
   cockroachdb: 6w
-  redpandadata:
+  codingconcepts:
+  golang: 3m
   lldap:
+  mongo: 6m
+  mysql: 6m
+  nginx: 6m
+  node: 3m
+  postgres: 6m
+  python: 3m
+  redis: 6m
+  redpandadata:
+  traefik: 6m
+
+docker_build_cache: 2w
+
+docker_volume_prune: true
+
+homebrew_cleanup: true
+
+git_gc: 500MB
+
+git_clean_branches: true
 
 delete_directories:
-  node_modules: 10MB
+  __pycache__: 1MB
+  .angular/cache: 50MB
+  .cache: 50MB 6m
+  .dart_tool: 10MB
+  .gradle: 100MB
+  .ipynb_checkpoints: 1MB
+  .mypy_cache: 10MB
+  .next: 50MB
+  .nuxt: 50MB
+  .parcel-cache: 50MB
+  .pytest_cache: 1MB
   .terraform/providers: 10MB 6m
+  .tox: 100MB 6m
+  .turbo: 50MB
+  .venv: 100MB 6m
+  build: 50MB 6m
+  coverage: 10MB 6m
+  dist: 50MB 6m
+  elm-stuff: 50MB
+  node_modules: 10MB
+  out: 50MB 6m
+  Pods: 100MB
+  target: 100MB 6m
+  vendor: 50MB 6m
+  venv: 100MB 6m
+  zig-cache: 50MB
+  zig-out: 50MB
 
 delete_files:
+  .core: 1MB 1w
+  .csv: 50MB 1y
+  .db: 50MB 6m
+  .dmg: 100MB 3m
+  .DS_Store: 1B
+  .dump: 1MB 1w
+  .egg: 50MB 6m
+  .heapsnapshot: 1MB 1w
+  .iso: 100MB 3m
+  .jar: 50MB 6m
   .log: 10MB 6m
-  .csv: 300MB 1y
+  .map: 10MB 6m
   .mp4: 50MB 1.5y
+  .pack: 50MB 6m
+  .pprof: 10MB 1m
+  .prof: 10MB 1m
+  .sqlite: 50MB 6m
+  .tgz: 100MB 6m
+  .war: 50MB 6m
+  .wasm: 50MB 6m
+  .whl: 50MB 6m
+  .zip: 100MB 6m
+
+delete_paths:
+  ~/.cache/pip: 500MB 3m
+  ~/.cache/yarn: 500MB 3m
+  ~/.cargo/registry: 1GB 3m
+  ~/.m2/repository: 1GB 6m
+  ~/.npm/_cacache: 500MB 3m
+  ~/.nuget/packages: 500MB 6m
+  ~/.pub-cache: 500MB 6m
+  ~/Library/Caches/Homebrew: 500MB 1m
+  ~/Library/Developer/CoreSimulator: 2GB 3m
+  ~/Library/Developer/Xcode/DerivedData: 1GB
 
 ignore_directories:
   - .git
-  - prerender
   - digital_human
   - Movies/TV
+  - prerender

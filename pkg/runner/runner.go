@@ -52,8 +52,9 @@ func (r *Runner) confirm(msg string) bool {
 func (r *Runner) Start(ctx context.Context) error {
 	ctx, r.cancel = context.WithCancel(ctx)
 
-	var dockerSize int64
 	if dockerExists() {
+		var dockerSize int64
+
 		if err := r.pruneImages(ctx); err != nil {
 			return fmt.Errorf("pruning docker images: %w", err)
 		}
@@ -65,14 +66,38 @@ func (r *Runner) Start(ctx context.Context) error {
 			}
 			dockerSize += n
 		}
+
+		if dockerSize > 0 {
+			slog.Info("total docker images reclaimed", "size", config.FormatSize(dockerSize))
+		}
+
+		if r.cfg.DockerBuildCache != nil {
+			if err := r.pruneBuilderCache(ctx); err != nil {
+				return fmt.Errorf("pruning docker build cache: %w", err)
+			}
+		}
+
+		if r.cfg.DockerVolumePrune {
+			if err := r.pruneVolumes(ctx); err != nil {
+				return fmt.Errorf("pruning docker volumes: %w", err)
+			}
+		}
 	}
 
-	if dockerSize > 0 {
-		slog.Info("total docker images reclaimed", "size", config.FormatSize(dockerSize))
+	if r.cfg.Homebrew {
+		if err := r.cleanHomebrew(ctx); err != nil {
+			return fmt.Errorf("running brew cleanup: %w", err)
+		}
 	}
 
 	if err := r.cleanFilesystem(ctx); err != nil {
 		return fmt.Errorf("cleaning filesystem: %w", err)
+	}
+
+	if len(r.cfg.DeletePaths) > 0 {
+		if err := r.cleanPaths(ctx); err != nil {
+			return fmt.Errorf("cleaning explicit paths: %w", err)
+		}
 	}
 
 	return nil
@@ -189,14 +214,14 @@ func (r *Runner) removeImages(ctx context.Context, prefix string, threshold *con
 	return confirmedSize, rmiCmd.Run()
 }
 
-func (r *Runner) cleanFilesystem(_ context.Context) error {
-	if len(r.cfg.DeleteDirectories) == 0 && len(r.cfg.DeleteFiles) == 0 {
+func (r *Runner) cleanFilesystem(ctx context.Context) error {
+	if len(r.cfg.DeleteDirectories) == 0 && len(r.cfg.DeleteFiles) == 0 && r.cfg.GitGC == nil && !r.cfg.GitCleanBranches {
 		return nil
 	}
 
 	var totalSize int64
 	for _, rootPath := range r.cfg.RootPaths {
-		n, err := r.walkRoot(rootPath, r.cfg.IgnorePaths, r.cfg.DeleteDirectories, r.cfg.DeleteFiles)
+		n, err := r.walkRoot(ctx, rootPath, r.cfg.IgnorePaths, r.cfg.DeleteDirectories, r.cfg.DeleteFiles)
 		if err != nil {
 			return err
 		}
@@ -209,7 +234,7 @@ func (r *Runner) cleanFilesystem(_ context.Context) error {
 	return nil
 }
 
-func (r *Runner) walkRoot(rootPath string, ignorePaths []string, dirThresholds map[string]config.Threshold, fileThresholds map[string]config.Threshold) (int64, error) {
+func (r *Runner) walkRoot(ctx context.Context, rootPath string, ignorePaths []string, dirThresholds map[string]config.Threshold, fileThresholds map[string]config.Threshold) (int64, error) {
 	var totalSize int64
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -221,6 +246,18 @@ func (r *Runner) walkRoot(rootPath string, ignorePaths []string, dirThresholds m
 			if matchesPath(path, ignorePaths) {
 				slog.Debug("ignoring path", "path", r.displayPath(path))
 				return filepath.SkipDir
+			}
+
+			// Detect git repo roots and run git maintenance.
+			if r.cfg.GitGC != nil || r.cfg.GitCleanBranches {
+				if info, serr := os.Stat(filepath.Join(path, ".git")); serr == nil && info.IsDir() {
+					if r.cfg.GitGC != nil {
+						r.gitGC(ctx, path)
+					}
+					if r.cfg.GitCleanBranches {
+						r.gitCleanBranches(ctx, path)
+					}
+				}
 			}
 
 			if t, ok := matchesDirTarget(path, dirThresholds); ok {
@@ -314,12 +351,6 @@ func matchesPath(path string, patterns []string) bool {
 
 func matchesDirTarget(path string, targets map[string]config.Threshold) (config.Threshold, bool) {
 	for name, t := range targets {
-		if strings.Contains(name, string(filepath.Separator)) {
-			if filepath.Base(path) == name {
-				return t, true
-			}
-			continue
-		}
 		if strings.HasSuffix(path, string(filepath.Separator)+name) {
 			return t, true
 		}
@@ -365,6 +396,196 @@ func shortPath(path string, n int) string {
 		parts = append([]string{"..."}, parts...)
 	}
 	return filepath.Join(parts...)
+}
+
+func (r *Runner) pruneBuilderCache(ctx context.Context) error {
+	args := []string{"builder", "prune", "-f"}
+	if r.cfg.DockerBuildCache.Age > 0 {
+		hours := int(r.cfg.DockerBuildCache.Age.Hours())
+		args = append(args, "--filter", fmt.Sprintf("until=%dh", hours))
+	}
+
+	slog.Info("pruning docker build cache")
+	if !r.confirm("prune docker build cache?") {
+		return nil
+	}
+	if r.dryRun {
+		return nil
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (r *Runner) pruneVolumes(ctx context.Context) error {
+	slog.Info("pruning unused docker volumes")
+	if !r.confirm("prune unused docker volumes?") {
+		return nil
+	}
+	if r.dryRun {
+		return nil
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", "volume", "prune", "-f")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (r *Runner) cleanHomebrew(ctx context.Context) error {
+	if _, err := exec.LookPath("brew"); err != nil {
+		slog.Debug("brew not found, skipping")
+		return nil
+	}
+
+	slog.Info("running brew cleanup")
+	if !r.confirm("run brew cleanup?") {
+		return nil
+	}
+	if r.dryRun {
+		return nil
+	}
+
+	cmd := exec.CommandContext(ctx, "brew", "cleanup", "--prune=all")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		slog.Warn("brew cleanup completed with errors", "error", err, "stderr", strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+func (r *Runner) cleanPaths(_ context.Context) error {
+	var totalSize int64
+	for path, threshold := range r.cfg.DeletePaths {
+		info, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				slog.Debug("path not found, skipping", "path", path)
+				continue
+			}
+			slog.Warn("error accessing path", "path", path, "error", err)
+			continue
+		}
+
+		var size int64
+		if info.IsDir() {
+			size, err = dirSize(path)
+			if err != nil {
+				slog.Warn("error calculating path size", "path", path, "error", err)
+				continue
+			}
+		} else {
+			size = info.Size()
+		}
+
+		if threshold.Size > 0 && size < threshold.Size {
+			continue
+		}
+		if threshold.Age > 0 && time.Since(info.ModTime()) < threshold.Age {
+			continue
+		}
+
+		slog.Info("deleting path", "path", r.displayPath(path), "size", config.FormatSize(size), "age", config.FormatAge(time.Since(info.ModTime())))
+		if !r.confirm(fmt.Sprintf("delete path %s (%s, %s)?", r.displayPath(path), config.FormatSize(size), config.FormatAge(time.Since(info.ModTime())))) {
+			continue
+		}
+		totalSize += size
+		if r.dryRun {
+			continue
+		}
+
+		if err := os.RemoveAll(path); err != nil {
+			slog.Warn("error deleting path", "path", path, "error", err)
+		}
+	}
+
+	if totalSize > 0 {
+		slog.Info("total paths reclaimed", "size", config.FormatSize(totalSize))
+	}
+	return nil
+}
+
+func (r *Runner) gitGC(ctx context.Context, repoPath string) {
+	gitDir := filepath.Join(repoPath, ".git")
+	size, err := dirSize(gitDir)
+	if err != nil {
+		slog.Warn("error calculating .git size", "path", repoPath, "error", err)
+		return
+	}
+
+	if r.cfg.GitGC.Size > 0 && size < r.cfg.GitGC.Size {
+		return
+	}
+
+	slog.Info("running git gc", "path", r.displayPath(repoPath), "git_size", config.FormatSize(size))
+	if !r.confirm(fmt.Sprintf("run git gc in %s (.git is %s)?", r.displayPath(repoPath), config.FormatSize(size))) {
+		return
+	}
+	if r.dryRun {
+		return
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "gc", "--prune=now")
+	if err := cmd.Run(); err != nil {
+		slog.Warn("error running git gc", "path", repoPath, "error", err)
+	}
+}
+
+func (r *Runner) gitCleanBranches(ctx context.Context, repoPath string) {
+	// Determine the default branch.
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	defaultBranch := "main"
+	if err := cmd.Run(); err == nil {
+		parts := strings.Split(strings.TrimSpace(out.String()), "/")
+		if len(parts) > 0 {
+			defaultBranch = parts[len(parts)-1]
+		}
+	}
+
+	// List branches merged into the default branch.
+	cmd = exec.CommandContext(ctx, "git", "-C", repoPath, "branch", "--merged", defaultBranch)
+	out.Reset()
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return
+	}
+
+	var branches []string
+	for line := range strings.SplitSeq(out.String(), "\n") {
+		branch := strings.TrimSpace(line)
+		if branch == "" || strings.HasPrefix(branch, "*") {
+			continue
+		}
+		if branch == "main" || branch == "master" || branch == defaultBranch {
+			continue
+		}
+		branches = append(branches, branch)
+	}
+
+	for _, branch := range branches {
+		slog.Info("deleting merged branch", "path", r.displayPath(repoPath), "branch", branch)
+		if !r.confirm(fmt.Sprintf("delete merged branch %s in %s?", branch, r.displayPath(repoPath))) {
+			continue
+		}
+		if r.dryRun {
+			continue
+		}
+		cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "branch", "-d", branch)
+		if err := cmd.Run(); err != nil {
+			slog.Warn("error deleting branch", "branch", branch, "path", repoPath, "error", err)
+		}
+	}
 }
 
 // parseDockerSize parses a human-readable size string from docker (e.g. "1.23GB", "456MB", "78.9kB").

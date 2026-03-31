@@ -14,11 +14,17 @@ import (
 )
 
 type Config struct {
-	RootPaths           []string               `yaml:"root_paths"`
-	DockerImagePrefixes map[string]*Threshold   `yaml:"docker_image_prefixes"`
-	DeleteDirectories   map[string]Threshold   `yaml:"delete_directories"`
-	DeleteFiles         map[string]Threshold   `yaml:"delete_files"`
-	IgnorePaths         []string               `yaml:"ignore_directories"`
+	RootPaths           []string              `yaml:"root_paths"`
+	DockerImagePrefixes map[string]*Threshold `yaml:"docker_image_prefixes"`
+	DockerBuildCache    *Threshold            `yaml:"docker_build_cache"`
+	DockerVolumePrune   bool                  `yaml:"docker_volume_prune"`
+	DeleteDirectories   map[string]Threshold  `yaml:"delete_directories"`
+	DeleteFiles         map[string]Threshold  `yaml:"delete_files"`
+	DeletePaths         map[string]Threshold  `yaml:"delete_paths"`
+	IgnorePaths         []string              `yaml:"ignore_directories"`
+	Homebrew            bool                  `yaml:"homebrew_cleanup"`
+	GitGC               *Threshold            `yaml:"git_gc"`
+	GitCleanBranches    bool                  `yaml:"git_clean_branches"`
 }
 
 type Threshold struct {
@@ -143,6 +149,28 @@ func Parse(path string) (cfg Config, err error) {
 		}
 	}
 
+	// Lowercase file extension keys so matching is case-insensitive.
+	if cfg.DeleteFiles != nil {
+		lowerFiles := make(map[string]Threshold, len(cfg.DeleteFiles))
+		for k, v := range cfg.DeleteFiles {
+			lowerFiles[strings.ToLower(k)] = v
+		}
+		cfg.DeleteFiles = lowerFiles
+	}
+
+	// Expand ~ in delete_paths keys.
+	if cfg.DeletePaths != nil {
+		expanded := make(map[string]Threshold, len(cfg.DeletePaths))
+		for k, v := range cfg.DeletePaths {
+			var ep string
+			if ep, err = ExpandPath(k); err != nil {
+				return
+			}
+			expanded[ep] = v
+		}
+		cfg.DeletePaths = expanded
+	}
+
 	return
 }
 
@@ -161,6 +189,14 @@ func (c Config) Print() {
 		}
 	}
 
+	if c.DockerBuildCache != nil {
+		log.Printf("docker_build_cache: %v", c.DockerBuildCache)
+	}
+
+	if c.DockerVolumePrune {
+		log.Println("docker_volume_prune: true")
+	}
+
 	log.Println("delete_directories")
 	for k, v := range c.DeleteDirectories {
 		log.Printf("  - %s (%v)", k, v)
@@ -171,9 +207,28 @@ func (c Config) Print() {
 		log.Printf("  - %s (%v)", k, v)
 	}
 
+	if len(c.DeletePaths) > 0 {
+		log.Println("delete_paths")
+		for k, v := range c.DeletePaths {
+			log.Printf("  - %s (%v)", k, v)
+		}
+	}
+
 	log.Println("ignore_directories")
 	for _, i := range c.IgnorePaths {
 		log.Printf("  - %s", i)
+	}
+
+	if c.Homebrew {
+		log.Println("homebrew_cleanup: true")
+	}
+
+	if c.GitGC != nil {
+		log.Printf("git_gc: %v", c.GitGC)
+	}
+
+	if c.GitCleanBranches {
+		log.Println("git_clean_branches: true")
 	}
 }
 
