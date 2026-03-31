@@ -115,9 +115,9 @@ delete_files:
   .csv: 300MB 1y
   .mp4: 50MB 1.5y
 
-# Specific absolute paths to delete when they exceed the given
-# thresholds. Useful for well-known caches, package stores, and
-# derived data directories. Supports ~ expansion.
+# Specific paths to delete when they exceed the given thresholds.
+# Useful for well-known caches, package stores, and derived data
+# directories. Supports ~ expansion.
 delete_paths:
   ~/.cache/pip: 500MB 3m
   ~/.npm/_cacache: 500MB 3m
