@@ -19,6 +19,7 @@ func main() {
 	configPath := flag.String("config", "~/.ddc/config.yaml", "absolute or relative path to the dcc config file")
 	dryRun := flag.Bool("dry-run", false, "print commands without executing them")
 	debug := flag.Bool("debug", false, "enable verbose debug logging")
+	interactive := flag.Bool("interactive", false, "prompt before each deletion")
 	flag.Parse()
 
 	if *configPath == "" {
@@ -54,7 +55,7 @@ func main() {
 		log.SetPrefix("[dry-run] ")
 	}
 
-	r := runner.New(cfg, *dryRun, *debug)
+	r := runner.New(cfg, *dryRun, *debug, *interactive)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)

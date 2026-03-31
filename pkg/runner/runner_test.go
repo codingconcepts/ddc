@@ -156,7 +156,7 @@ func TestWalkRootDeletesFiles(t *testing.T) {
 	txtFile := filepath.Join(dir, "keep.txt")
 	writeFile(t, txtFile, 100)
 
-	r := New(config.Config{}, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -184,7 +184,7 @@ func TestWalkRootDryRunPreservesFiles(t *testing.T) {
 	logFile := filepath.Join(dir, "big.log")
 	writeFile(t, logFile, 2_000_000)
 
-	r := New(config.Config{}, true, false)
+	r := New(config.Config{}, true, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -216,7 +216,7 @@ func TestWalkRootDeletesDirectories(t *testing.T) {
 		"node_modules": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, false, false)
+	r := New(config.Config{}, false, false, false)
 	size, err := r.walkRoot(dir, nil, dirThresholds, nil)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)
@@ -237,7 +237,7 @@ func TestWalkRootSkipsBelowSizeThreshold(t *testing.T) {
 	logFile := filepath.Join(dir, "small.log")
 	writeFile(t, logFile, 100)
 
-	r := New(config.Config{}, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -269,7 +269,7 @@ func TestWalkRootRespectsAgeThreshold(t *testing.T) {
 	old := time.Now().Add(-400 * 24 * time.Hour)
 	os.Chtimes(oldFile, old, old)
 
-	r := New(config.Config{}, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000, Age: 365 * 24 * time.Hour},
 	}
@@ -300,7 +300,7 @@ func TestWalkRootIgnoresPaths(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(ignored, "big.log"), 5_000_000)
 
-	r := New(config.Config{}, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -320,14 +320,14 @@ func TestWalkRootIgnoresPaths(t *testing.T) {
 }
 
 func TestDisplayPath(t *testing.T) {
-	r := New(config.Config{}, false, false)
+	r := New(config.Config{}, false, false, false)
 	got := r.displayPath("/a/b/c/d/e")
 	want := shortPath("/a/b/c/d/e", 3)
 	if got != want {
 		t.Errorf("displayPath() = %q, want %q", got, want)
 	}
 
-	rDebug := New(config.Config{}, false, true)
+	rDebug := New(config.Config{}, false, true, false)
 	got = rDebug.displayPath("/a/b/c/d/e")
 	if got != "/a/b/c/d/e" {
 		t.Errorf("displayPath(debug) = %q, want full path", got)

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -18,18 +19,34 @@ import (
 )
 
 type Runner struct {
-	cfg    config.Config
-	dryRun bool
-	debug  bool
-	cancel context.CancelFunc
+	cfg         config.Config
+	dryRun      bool
+	debug       bool
+	interactive bool
+	cancel      context.CancelFunc
+	scanner     *bufio.Scanner
 }
 
-func New(cfg config.Config, dryRun, debug bool) *Runner {
+func New(cfg config.Config, dryRun, debug, interactive bool) *Runner {
 	return &Runner{
-		cfg:    cfg,
-		dryRun: dryRun,
-		debug:  debug,
+		cfg:         cfg,
+		dryRun:      dryRun,
+		debug:       debug,
+		interactive: interactive,
+		scanner:     bufio.NewScanner(os.Stdin),
 	}
+}
+
+func (r *Runner) confirm(msg string) bool {
+	if !r.interactive {
+		return true
+	}
+	fmt.Printf("%s [y/N] ", msg)
+	if !r.scanner.Scan() {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(r.scanner.Text()))
+	return answer == "y" || answer == "yes"
 }
 
 func (r *Runner) Start(ctx context.Context) error {
@@ -41,8 +58,8 @@ func (r *Runner) Start(ctx context.Context) error {
 			return fmt.Errorf("pruning docker images: %w", err)
 		}
 
-		for _, prefix := range r.cfg.DockerImagePrefixes {
-			n, err := r.removeImages(ctx, prefix)
+		for prefix, threshold := range r.cfg.DockerImagePrefixes {
+			n, err := r.removeImages(ctx, prefix, threshold)
 			if err != nil {
 				return fmt.Errorf("pruning docker images: %w", err)
 			}
@@ -96,43 +113,80 @@ func (r *Runner) pruneImages(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) removeImages(ctx context.Context, prefix string) (int64, error) {
-	listCmd := exec.CommandContext(ctx, "docker", "images", "--format", "{{.Repository}}:{{.Tag}}\t{{.Size}}")
+func (r *Runner) removeImages(ctx context.Context, prefix string, threshold *config.Threshold) (int64, error) {
+	listCmd := exec.CommandContext(ctx, "docker", "images", "--format", "{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}")
 	var out bytes.Buffer
 	listCmd.Stdout = &out
 	if err := listCmd.Run(); err != nil {
 		return 0, fmt.Errorf("listing images: %w", err)
 	}
 
-	var images []string
+	type imageInfo struct {
+		id   string
+		name string
+		size int64
+		age  time.Duration
+	}
+
+	var images []imageInfo
 	var totalSize int64
 	for line := range strings.SplitSeq(out.String(), "\n") {
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) < 2 {
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) < 4 {
 			continue
 		}
-		name := parts[0]
-		if !strings.HasPrefix(name, prefix) || strings.Contains(name, "<none>") {
+		id := parts[0]
+		name := parts[1]
+		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
-		images = append(images, name)
-		totalSize += parseDockerSize(parts[1])
+
+		size := parseDockerSize(parts[2])
+		createdAt, err := time.Parse("2006-01-02 15:04:05 -0700 MST", strings.TrimSpace(parts[3]))
+		if err != nil {
+			slog.Warn("error parsing image creation time", "image", name, "error", err)
+			continue
+		}
+		age := time.Since(createdAt)
+
+		if threshold != nil {
+			if threshold.Size > 0 && size < threshold.Size {
+				continue
+			}
+			if threshold.Age > 0 && age < threshold.Age {
+				continue
+			}
+		}
+
+		images = append(images, imageInfo{id: id, name: name, size: size, age: age})
+		totalSize += size
 	}
 
 	if len(images) == 0 {
 		return 0, nil
 	}
 
-	for _, image := range images {
-		slog.Info("deleting image", "name", image)
+	var ids []string
+	var confirmedSize int64
+	for _, img := range images {
+		slog.Info("deleting image", "name", img.name, "size", config.FormatSize(img.size), "age", config.FormatAge(img.age))
+		if !r.confirm(fmt.Sprintf("delete image %s (%s, %s)?", img.name, config.FormatSize(img.size), config.FormatAge(img.age))) {
+			continue
+		}
+		ids = append(ids, img.id)
+		confirmedSize += img.size
+	}
+
+	if len(ids) == 0 {
+		return 0, nil
 	}
 
 	if r.dryRun {
-		return totalSize, nil
+		return confirmedSize, nil
 	}
 
-	rmiCmd := exec.CommandContext(ctx, "docker", append([]string{"rmi", "-f"}, images...)...)
-	return totalSize, rmiCmd.Run()
+	rmiCmd := exec.CommandContext(ctx, "docker", append([]string{"rmi", "-f"}, ids...)...)
+	return confirmedSize, rmiCmd.Run()
 }
 
 func (r *Runner) cleanFilesystem(_ context.Context) error {
@@ -189,8 +243,11 @@ func (r *Runner) walkRoot(rootPath string, ignorePaths []string, dirThresholds m
 					return filepath.SkipDir
 				}
 
-				totalSize += size
 				slog.Info("deleting directory", "path", r.displayPath(path), "size", config.FormatSize(size), "age", config.FormatAge(time.Since(info.ModTime())))
+				if !r.confirm(fmt.Sprintf("delete directory %s (%s, %s)?", r.displayPath(path), config.FormatSize(size), config.FormatAge(time.Since(info.ModTime())))) {
+					return filepath.SkipDir
+				}
+				totalSize += size
 				if r.dryRun {
 					return filepath.SkipDir
 				}
@@ -224,8 +281,11 @@ func (r *Runner) walkRoot(rootPath string, ignorePaths []string, dirThresholds m
 		}
 
 		attrs := []any{"path", r.displayPath(path), "size", config.FormatSize(info.Size()), "age", config.FormatAge(time.Since(info.ModTime()))}
-		totalSize += info.Size()
 		slog.Info("deleting file", attrs...)
+		if !r.confirm(fmt.Sprintf("delete file %s (%s, %s)?", r.displayPath(path), config.FormatSize(info.Size()), config.FormatAge(time.Since(info.ModTime())))) {
+			return nil
+		}
+		totalSize += info.Size()
 		if r.dryRun {
 			return nil
 		}

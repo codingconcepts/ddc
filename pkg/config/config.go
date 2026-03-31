@@ -15,7 +15,7 @@ import (
 
 type Config struct {
 	RootPaths           []string               `yaml:"root_paths"`
-	DockerImagePrefixes []string               `yaml:"docker_image_prefixes"`
+	DockerImagePrefixes map[string]*Threshold   `yaml:"docker_image_prefixes"`
 	DeleteDirectories   map[string]Threshold   `yaml:"delete_directories"`
 	DeleteFiles         map[string]Threshold   `yaml:"delete_files"`
 	IgnorePaths         []string               `yaml:"ignore_directories"`
@@ -153,8 +153,12 @@ func (c Config) Print() {
 	}
 
 	log.Println("docker_image_prefixes")
-	for _, prefix := range c.DockerImagePrefixes {
-		log.Printf("  - %s", prefix)
+	for prefix, threshold := range c.DockerImagePrefixes {
+		if threshold != nil {
+			log.Printf("  - %s (%v)", prefix, threshold)
+		} else {
+			log.Printf("  - %s", prefix)
+		}
 	}
 
 	log.Println("delete_directories")

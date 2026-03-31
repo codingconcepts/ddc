@@ -3,7 +3,10 @@ root_paths:
   - ~/Movies
 
 docker_image_prefixes:
-  - codingconcepts
+  codingconcepts:
+  cockroachdb: 6w
+  redpandadata:
+  lldap:
 
 delete_directories:
   node_modules: 10MB

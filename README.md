@@ -26,6 +26,8 @@ Usage of ddc:
         print commands without executing them
   -debug
         enable verbose debug logging
+  -interactive
+        prompt before each deletion
 ```
 
 Run with the default config:
@@ -38,6 +40,12 @@ Preview what would be deleted without actually removing anything:
 
 ```sh
 ddc --dry-run
+```
+
+Prompt before each deletion:
+
+```sh
+ddc --interactive
 ```
 
 Run with a specific config file and debug logging:
@@ -61,8 +69,11 @@ root_paths:
 # Docker image repository prefixes to remove. Any image whose
 # repository starts with one of these prefixes will be deleted.
 # Docker's dangling image prune runs automatically before this step.
+# Optional size/age thresholds can be specified (same syntax as
+# directories and files). Omit the threshold to delete all matches.
 docker_image_prefixes:
-  - codingconcepts
+  codingconcepts:
+  cockroachdb: 6w
 
 # Directories to delete when they exceed the given thresholds.
 # Each entry is a directory name mapped to a threshold string.
