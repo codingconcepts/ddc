@@ -1,0 +1,21 @@
+root_paths:
+  - ~/dev
+  - ~/Movies
+
+docker_image_prefixes:
+  - codingconcepts
+
+delete_directories:
+  node_modules: 10MB
+  .terraform/providers: 10MB 6m
+
+delete_files:
+  .log: 10MB 6m
+  .csv: 300MB 1y
+  .mp4: 50MB 1.5y
+
+ignore_directories:
+  - .git
+  - prerender
+  - digital_human
+  - Movies/TV
