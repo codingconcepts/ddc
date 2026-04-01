@@ -29,24 +29,24 @@ go install github.com/codingconcepts/ddc@latest
 Usage of ddc:
   -config string
         absolute or relative path to the ddc config file (default "~/.ddc/config.yaml")
-  -dry-run
-        print commands without executing them
+  -quiet
+        execute deletions without prompting (default is preview mode)
   -debug
         enable verbose debug logging
   -interactive
         prompt before each deletion
 ```
 
-Run with the default config:
+Run in preview mode (default, shows what would be deleted):
 
 ```sh
 ddc
 ```
 
-Preview what would be deleted without actually removing anything:
+Actually execute deletions:
 
 ```sh
-ddc --dry-run
+ddc --quiet
 ```
 
 Prompt before each deletion:

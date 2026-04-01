@@ -157,7 +157,7 @@ func TestWalkRootDeletesFiles(t *testing.T) {
 	txtFile := filepath.Join(dir, "keep.txt")
 	writeFile(t, txtFile, 100)
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -179,13 +179,13 @@ func TestWalkRootDeletesFiles(t *testing.T) {
 	}
 }
 
-func TestWalkRootDryRunPreservesFiles(t *testing.T) {
+func TestWalkRootQuietPreservesFiles(t *testing.T) {
 	dir := t.TempDir()
 
 	logFile := filepath.Join(dir, "big.log")
 	writeFile(t, logFile, 2_000_000)
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -200,7 +200,7 @@ func TestWalkRootDryRunPreservesFiles(t *testing.T) {
 	}
 
 	if _, err := os.Stat(logFile); err != nil {
-		t.Error("dry-run should preserve files")
+		t.Error("preview mode should preserve files")
 	}
 }
 
@@ -217,7 +217,7 @@ func TestWalkRootDeletesDirectories(t *testing.T) {
 		"node_modules": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	size, err := r.walkRoot(context.Background(), dir, nil, dirThresholds, nil)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)
@@ -238,7 +238,7 @@ func TestWalkRootSkipsBelowSizeThreshold(t *testing.T) {
 	logFile := filepath.Join(dir, "small.log")
 	writeFile(t, logFile, 100)
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -270,7 +270,7 @@ func TestWalkRootRespectsAgeThreshold(t *testing.T) {
 	old := time.Now().Add(-400 * 24 * time.Hour)
 	os.Chtimes(oldFile, old, old)
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000, Age: 365 * 24 * time.Hour},
 	}
@@ -301,7 +301,7 @@ func TestWalkRootIgnoresPaths(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(ignored, "big.log"), 5_000_000)
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -321,7 +321,7 @@ func TestWalkRootIgnoresPaths(t *testing.T) {
 }
 
 func TestDisplayPath(t *testing.T) {
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	got := r.displayPath("/a/b/c/d/e")
 	want := shortPath("/a/b/c/d/e", 3)
 	if got != want {
@@ -377,7 +377,7 @@ func TestCleanPaths(t *testing.T) {
 			cacheDir: {Size: 1_000_000},
 		},
 	}
-	r := New(cfg, false, false, false)
+	r := New(cfg, true, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestCleanPathsRespectsSizeThreshold(t *testing.T) {
 			cacheDir: {Size: 1_000_000},
 		},
 	}
-	r := New(cfg, false, false, false)
+	r := New(cfg, true, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestCleanPathsRespectsAgeThreshold(t *testing.T) {
 			oldDir:    {Size: 1_000_000, Age: 365 * 24 * time.Hour},
 		},
 	}
-	r := New(cfg, false, false, false)
+	r := New(cfg, true, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestCleanPathsRespectsAgeThreshold(t *testing.T) {
 	}
 }
 
-func TestCleanPathsDryRun(t *testing.T) {
+func TestCleanPathsPreviewMode(t *testing.T) {
 	dir := t.TempDir()
 
 	cacheDir := filepath.Join(dir, "cache")
@@ -464,13 +464,13 @@ func TestCleanPathsDryRun(t *testing.T) {
 			cacheDir: {Size: 1_000_000},
 		},
 	}
-	r := New(cfg, true, false, false)
+	r := New(cfg, false, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
 
 	if _, err := os.Stat(cacheDir); err != nil {
-		t.Error("dry-run should preserve cache directory")
+		t.Error("preview mode should preserve cache directory")
 	}
 }
 
@@ -480,7 +480,7 @@ func TestCleanPathsSkipsMissing(t *testing.T) {
 			"/nonexistent/path/that/does/not/exist": {Size: 1},
 		},
 	}
-	r := New(cfg, false, false, false)
+	r := New(cfg, true, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() should not error on missing paths: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestWalkRootDeletesNewDirectoryTypes(t *testing.T) {
 		"__pycache__": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	size, err := r.walkRoot(context.Background(), dir, nil, dirThresholds, nil)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)
@@ -545,7 +545,7 @@ func TestWalkRootDeletesNewFileTypes(t *testing.T) {
 		".core": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	size, err := r.walkRoot(context.Background(), dir, nil, nil, fileThresholds)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)

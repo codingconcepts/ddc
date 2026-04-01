@@ -20,7 +20,7 @@ import (
 
 type Runner struct {
 	cfg         config.Config
-	dryRun      bool
+	quiet       bool
 	debug       bool
 	interactive bool
 	hasBazel    bool
@@ -28,11 +28,11 @@ type Runner struct {
 	scanner     *bufio.Scanner
 }
 
-func New(cfg config.Config, dryRun, debug, interactive bool) *Runner {
+func New(cfg config.Config, quiet, debug, interactive bool) *Runner {
 	_, bazelErr := exec.LookPath("bazel")
 	return &Runner{
 		cfg:         cfg,
-		dryRun:      dryRun,
+		quiet:       quiet,
 		debug:       debug,
 		interactive: interactive,
 		hasBazel:    bazelErr == nil,
@@ -161,7 +161,7 @@ func dockerExists() bool {
 }
 
 func (r *Runner) pruneImages(ctx context.Context) error {
-	if r.dryRun {
+	if !r.quiet {
 		return nil
 	}
 
@@ -242,7 +242,7 @@ func (r *Runner) removeImages(ctx context.Context, prefix string, threshold *con
 		return 0, nil
 	}
 
-	if r.dryRun {
+	if !r.quiet {
 		return confirmedSize, nil
 	}
 
@@ -317,7 +317,7 @@ func (r *Runner) walkRoot(ctx context.Context, rootPath string, ignorePaths []st
 			}
 
 			if t, ok := matchesDirTarget(path, dirThresholds); ok {
-				size, err := dirSize(path)
+				size, err := dirSizeCtx(ctx, path)
 				if err != nil {
 					slog.Warn("error calculating directory size", "path", path, "error", err)
 					return nil
@@ -341,7 +341,7 @@ func (r *Runner) walkRoot(ctx context.Context, rootPath string, ignorePaths []st
 					return filepath.SkipDir
 				}
 				totalSize += size
-				if r.dryRun {
+				if !r.quiet {
 					return filepath.SkipDir
 				}
 				if err := os.RemoveAll(path); err != nil {
@@ -379,7 +379,7 @@ func (r *Runner) walkRoot(ctx context.Context, rootPath string, ignorePaths []st
 			return nil
 		}
 		totalSize += info.Size()
-		if r.dryRun {
+		if !r.quiet {
 			return nil
 		}
 
@@ -415,8 +415,15 @@ func matchesDirTarget(path string, targets map[string]config.Threshold) (config.
 }
 
 func dirSize(path string) (int64, error) {
+	return dirSizeCtx(context.Background(), path)
+}
+
+func dirSizeCtx(ctx context.Context, path string) (int64, error) {
 	var size int64
 	err := filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}
@@ -465,7 +472,7 @@ func (r *Runner) pruneBuilderCache(ctx context.Context) error {
 	if !r.confirm("prune docker build cache?") {
 		return nil
 	}
-	if r.dryRun {
+	if !r.quiet {
 		return nil
 	}
 
@@ -483,7 +490,7 @@ func (r *Runner) pruneVolumes(ctx context.Context) error {
 	if !r.confirm("prune unused docker volumes?") {
 		return nil
 	}
-	if r.dryRun {
+	if !r.quiet {
 		return nil
 	}
 
@@ -506,7 +513,7 @@ func (r *Runner) cleanHomebrew(ctx context.Context) error {
 	if !r.confirm("run brew cleanup?") {
 		return nil
 	}
-	if r.dryRun {
+	if !r.quiet {
 		return nil
 	}
 
@@ -537,7 +544,7 @@ func (r *Runner) cleanPaths(ctx context.Context) error {
 
 		var size int64
 		if info.IsDir() {
-			size, err = dirSize(path)
+			size, err = dirSizeCtx(ctx, path)
 			if err != nil {
 				slog.Warn("error calculating path size", "path", path, "error", err)
 				continue
@@ -558,7 +565,7 @@ func (r *Runner) cleanPaths(ctx context.Context) error {
 			continue
 		}
 		totalSize += size
-		if r.dryRun {
+		if !r.quiet {
 			continue
 		}
 
@@ -585,12 +592,15 @@ func (r *Runner) bazelClean(ctx context.Context, workspacePath string) int64 {
 	}
 
 	size := bazelOutputSize(ctx, workspacePath)
+	if ctx.Err() != nil {
+		return 0
+	}
 
 	slog.Info("running "+label, "path", r.displayPath(workspacePath), "size", config.FormatSize(size))
 	if !r.confirm(fmt.Sprintf("run %s in %s (%s)?", label, r.displayPath(workspacePath), config.FormatSize(size))) {
 		return 0
 	}
-	if r.dryRun {
+	if !r.quiet {
 		return size
 	}
 
@@ -616,7 +626,7 @@ func bazelOutputSize(ctx context.Context, workspacePath string) int64 {
 	if outputBase == "" {
 		return 0
 	}
-	size, _ := dirSize(outputBase)
+	size, _ := dirSizeCtx(ctx, outputBase)
 	return size
 }
 
@@ -661,7 +671,7 @@ func (r *Runner) cleanGo(ctx context.Context) error {
 		if !r.confirm("clean " + c.name + "?") {
 			continue
 		}
-		if r.dryRun {
+		if !r.quiet {
 			continue
 		}
 
@@ -678,9 +688,12 @@ func (r *Runner) cleanGo(ctx context.Context) error {
 
 func (r *Runner) gitGC(ctx context.Context, repoPath string) {
 	gitDir := filepath.Join(repoPath, ".git")
-	size, err := dirSize(gitDir)
+	size, err := dirSizeCtx(ctx, gitDir)
 	if err != nil {
 		slog.Warn("error calculating .git size", "path", repoPath, "error", err)
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 
@@ -692,7 +705,7 @@ func (r *Runner) gitGC(ctx context.Context, repoPath string) {
 	if !r.confirm(fmt.Sprintf("run git gc in %s (.git is %s)?", r.displayPath(repoPath), config.FormatSize(size))) {
 		return
 	}
-	if r.dryRun {
+	if !r.quiet {
 		return
 	}
 
@@ -743,7 +756,7 @@ func (r *Runner) gitCleanBranches(ctx context.Context, repoPath string) {
 		if !r.confirm(fmt.Sprintf("delete merged branch %s in %s?", branch, r.displayPath(repoPath))) {
 			continue
 		}
-		if r.dryRun {
+		if !r.quiet {
 			continue
 		}
 		cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "branch", "-d", branch)
