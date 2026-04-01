@@ -21,9 +21,17 @@ docker_build_cache: 2w
 
 docker_volume_prune: true
 
+temp_cleanup: true
+
+go_cleanup:
+  cache: true
+  modcache: true
+  testcache: true
+  fuzzcache: true
+
 homebrew_cleanup: true
 
-git_gc: 500MB
+git_gc: 100MB
 
 git_clean_branches: true
 

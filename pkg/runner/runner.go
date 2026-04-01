@@ -60,6 +60,9 @@ func (r *Runner) Start(ctx context.Context) error {
 		}
 
 		for prefix, threshold := range r.cfg.DockerImagePrefixes {
+			if ctx.Err() != nil {
+				return nil
+			}
 			n, err := r.removeImages(ctx, prefix, threshold)
 			if err != nil {
 				return fmt.Errorf("pruning docker images: %w", err)
@@ -71,10 +74,18 @@ func (r *Runner) Start(ctx context.Context) error {
 			slog.Info("total docker images reclaimed", "size", config.FormatSize(dockerSize))
 		}
 
+		if ctx.Err() != nil {
+			return nil
+		}
+
 		if r.cfg.DockerBuildCache != nil {
 			if err := r.pruneBuilderCache(ctx); err != nil {
 				return fmt.Errorf("pruning docker build cache: %w", err)
 			}
+		}
+
+		if ctx.Err() != nil {
+			return nil
 		}
 
 		if r.cfg.DockerVolumePrune {
@@ -84,14 +95,36 @@ func (r *Runner) Start(ctx context.Context) error {
 		}
 	}
 
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	if r.cfg.GoClean != nil {
+		if err := r.cleanGo(ctx); err != nil {
+			return fmt.Errorf("cleaning go caches: %w", err)
+		}
+	}
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	if r.cfg.Homebrew {
 		if err := r.cleanHomebrew(ctx); err != nil {
 			return fmt.Errorf("running brew cleanup: %w", err)
 		}
 	}
 
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	if err := r.cleanFilesystem(ctx); err != nil {
 		return fmt.Errorf("cleaning filesystem: %w", err)
+	}
+
+	if ctx.Err() != nil {
+		return nil
 	}
 
 	if len(r.cfg.DeletePaths) > 0 {
@@ -219,8 +252,16 @@ func (r *Runner) cleanFilesystem(ctx context.Context) error {
 		return nil
 	}
 
+	rootPaths := r.cfg.RootPaths
+	if r.cfg.TempCleanup {
+		rootPaths = append(rootPaths, os.TempDir())
+	}
+
 	var totalSize int64
-	for _, rootPath := range r.cfg.RootPaths {
+	for _, rootPath := range rootPaths {
+		if ctx.Err() != nil {
+			break
+		}
 		n, err := r.walkRoot(ctx, rootPath, r.cfg.IgnorePaths, r.cfg.DeleteDirectories, r.cfg.DeleteFiles)
 		if err != nil {
 			return err
@@ -237,8 +278,15 @@ func (r *Runner) cleanFilesystem(ctx context.Context) error {
 func (r *Runner) walkRoot(ctx context.Context, rootPath string, ignorePaths []string, dirThresholds map[string]config.Threshold, fileThresholds map[string]config.Threshold) (int64, error) {
 	var totalSize int64
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
+
 		if err != nil {
-			slog.Warn("error accessing path", "path", path, "error", err)
+			slog.Debug("skipping inaccessible path", "path", path, "error", err)
+			if d == nil || d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -463,9 +511,12 @@ func (r *Runner) cleanHomebrew(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) cleanPaths(_ context.Context) error {
+func (r *Runner) cleanPaths(ctx context.Context) error {
 	var totalSize int64
 	for path, threshold := range r.cfg.DeletePaths {
+		if ctx.Err() != nil {
+			break
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -511,6 +562,52 @@ func (r *Runner) cleanPaths(_ context.Context) error {
 	if totalSize > 0 {
 		slog.Info("total paths reclaimed", "size", config.FormatSize(totalSize))
 	}
+	return nil
+}
+
+func (r *Runner) cleanGo(ctx context.Context) error {
+	if _, err := exec.LookPath("go"); err != nil {
+		slog.Debug("go not found, skipping")
+		return nil
+	}
+
+	type goCache struct {
+		name    string
+		flag    string
+		enabled bool
+	}
+
+	caches := []goCache{
+		{"go build cache", "-cache", r.cfg.GoClean.Cache},
+		{"go module cache", "-modcache", r.cfg.GoClean.ModCache},
+		{"go test cache", "-testcache", r.cfg.GoClean.TestCache},
+		{"go fuzz cache", "-fuzzcache", r.cfg.GoClean.FuzzCache},
+	}
+
+	for _, c := range caches {
+		if ctx.Err() != nil {
+			break
+		}
+		if !c.enabled {
+			continue
+		}
+
+		slog.Info("cleaning " + c.name)
+		if !r.confirm("clean " + c.name + "?") {
+			continue
+		}
+		if r.dryRun {
+			continue
+		}
+
+		cmd := exec.CommandContext(ctx, "go", "clean", c.flag)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			slog.Warn("error cleaning "+c.name, "error", err, "stderr", strings.TrimSpace(stderr.String()))
+		}
+	}
+
 	return nil
 }
 
@@ -574,6 +671,9 @@ func (r *Runner) gitCleanBranches(ctx context.Context, repoPath string) {
 	}
 
 	for _, branch := range branches {
+		if ctx.Err() != nil {
+			return
+		}
 		slog.Info("deleting merged branch", "path", r.displayPath(repoPath), "branch", branch)
 		if !r.confirm(fmt.Sprintf("delete merged branch %s in %s?", branch, r.displayPath(repoPath))) {
 			continue

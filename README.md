@@ -11,6 +11,8 @@ ddc scans your filesystem and Docker installation to reclaim disk space by remov
 - Docker build cache and unused volumes
 - Stale git branches and bloated `.git` directories
 - Homebrew caches
+- Go build, module, test, and fuzz caches
+- Temporary files from the OS temp directory
 
 On first run, ddc creates a default config at `~/.ddc/config.yaml` if one doesn't exist.
 
@@ -86,13 +88,26 @@ docker_build_cache: 2w
 # Prune all unused Docker volumes.
 docker_volume_prune: true
 
+# Clean files from the OS temp directory (os.TempDir()) using the
+# same delete_files and delete_directories rules. Portable across
+# platforms without hardcoding paths.
+temp_cleanup: true
+
+# Clean Go toolchain caches. Each sub-key maps to a `go clean` flag.
+# Skipped if go is not installed.
+go_cleanup:
+  cache: true      # build cache (go clean -cache)
+  modcache: true   # module cache (go clean -modcache)
+  testcache: true  # test cache (go clean -testcache)
+  fuzzcache: true  # fuzz cache (go clean -fuzzcache)
+
 # Run `brew cleanup --prune=all` to remove old Homebrew downloads
 # and caches. Skipped if brew is not installed.
 homebrew_cleanup: true
 
 # Run `git gc --prune=now` on any git repository whose .git
 # directory exceeds the given size threshold.
-git_gc: 500MB
+git_gc: 100MB
 
 # Delete branches that have been merged into the default branch
 # (main/master) in every git repository found under root_paths.

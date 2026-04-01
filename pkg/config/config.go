@@ -25,11 +25,20 @@ type Config struct {
 	Homebrew            bool                  `yaml:"homebrew_cleanup"`
 	GitGC               *Threshold            `yaml:"git_gc"`
 	GitCleanBranches    bool                  `yaml:"git_clean_branches"`
+	TempCleanup         bool                  `yaml:"temp_cleanup"`
+	GoClean             *GoClean              `yaml:"go_cleanup"`
 }
 
 type Threshold struct {
 	Size int64
 	Age  time.Duration
+}
+
+type GoClean struct {
+	Cache     bool `yaml:"cache"`
+	ModCache  bool `yaml:"modcache"`
+	TestCache bool `yaml:"testcache"`
+	FuzzCache bool `yaml:"fuzzcache"`
 }
 
 func (t *Threshold) UnmarshalYAML(value *yaml.Node) error {
@@ -229,6 +238,26 @@ func (c Config) Print() {
 
 	if c.GitCleanBranches {
 		log.Println("git_clean_branches: true")
+	}
+
+	if c.TempCleanup {
+		log.Println("temp_cleanup: true")
+	}
+
+	if c.GoClean != nil {
+		log.Println("go_cleanup:")
+		if c.GoClean.Cache {
+			log.Println("  cache: true")
+		}
+		if c.GoClean.ModCache {
+			log.Println("  modcache: true")
+		}
+		if c.GoClean.TestCache {
+			log.Println("  testcache: true")
+		}
+		if c.GoClean.FuzzCache {
+			log.Println("  fuzzcache: true")
+		}
 	}
 }
 
