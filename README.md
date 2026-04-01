@@ -11,6 +11,7 @@ ddc scans your filesystem and Docker installation to reclaim disk space by remov
 - Docker build cache and unused volumes
 - Stale git branches and bloated `.git` directories
 - Homebrew caches
+- Bazel build outputs in detected workspaces
 - Go build, module, test, and fuzz caches
 - Temporary files from the OS temp directory
 
@@ -92,6 +93,15 @@ docker_volume_prune: true
 # same delete_files and delete_directories rules. Portable across
 # platforms without hardcoding paths.
 temp_cleanup: true
+
+# Clean Bazel build outputs in detected workspaces. Workspaces are
+# identified by the presence of WORKSPACE, WORKSPACE.bazel, or
+# MODULE.bazel files. Reports reclaimed disk space from the output
+# base. Skipped if bazel is not installed.
+bazel_cleanup:
+  clean: true           # run `bazel clean`
+  expunge: false        # run `bazel clean --expunge` (removes entire output base)
+  expunge_async: false  # run `bazel clean --expunge_async` (non-blocking, takes priority over expunge)
 
 # Clean Go toolchain caches. Each sub-key maps to a `go clean` flag.
 # Skipped if go is not installed.

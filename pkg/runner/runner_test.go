@@ -566,6 +566,35 @@ func TestWalkRootDeletesNewFileTypes(t *testing.T) {
 	}
 }
 
+func TestIsBazelWorkspace(t *testing.T) {
+	tests := []struct {
+		name   string
+		files  []string
+		want   bool
+	}{
+		{"WORKSPACE file", []string{"WORKSPACE"}, true},
+		{"WORKSPACE.bazel file", []string{"WORKSPACE.bazel"}, true},
+		{"MODULE.bazel file", []string{"MODULE.bazel"}, true},
+		{"no marker files", []string{"BUILD", "main.go"}, false},
+		{"empty directory", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, f := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := isBazelWorkspace(dir)
+			if got != tt.want {
+				t.Errorf("isBazelWorkspace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func writeFile(t *testing.T, path string, size int) {
 	t.Helper()
 	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {

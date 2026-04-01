@@ -23,6 +23,11 @@ docker_volume_prune: true
 
 temp_cleanup: true
 
+bazel_cleanup:
+  clean: true
+  expunge: false
+  expunge_async: false
+
 go_cleanup:
   cache: true
   modcache: true
@@ -68,7 +73,7 @@ delete_files:
   .core: 1MB 1w
   .csv: 50MB 1y
   .db: 50MB 6m
-  .dmg: 100MB 3m
+  .dmg: 10MB 3m
   .DS_Store: 1B
   .dump: 1MB 1w
   .egg: 50MB 6m
@@ -82,13 +87,15 @@ delete_files:
   .pprof: 10MB 1m
   .prof: 10MB 1m
   .sqlite: 50MB 6m
-  .tgz: 100MB 6m
+  .tgz: 10MB 6m
   .war: 50MB 6m
   .wasm: 50MB 6m
   .whl: 50MB 6m
-  .zip: 100MB 6m
+  .zip: 10MB 6m
 
 delete_paths:
+  ~/.cache/bazel: 1GB 30d
+  ~/Library/Caches/bazel: 500MB
   ~/.cache/pip: 500MB 3m
   ~/.cache/yarn: 500MB 3m
   ~/.cargo/registry: 1GB 3m

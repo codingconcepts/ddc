@@ -23,16 +23,19 @@ type Runner struct {
 	dryRun      bool
 	debug       bool
 	interactive bool
+	hasBazel    bool
 	cancel      context.CancelFunc
 	scanner     *bufio.Scanner
 }
 
 func New(cfg config.Config, dryRun, debug, interactive bool) *Runner {
+	_, bazelErr := exec.LookPath("bazel")
 	return &Runner{
 		cfg:         cfg,
 		dryRun:      dryRun,
 		debug:       debug,
 		interactive: interactive,
+		hasBazel:    bazelErr == nil,
 		scanner:     bufio.NewScanner(os.Stdin),
 	}
 }
@@ -248,7 +251,7 @@ func (r *Runner) removeImages(ctx context.Context, prefix string, threshold *con
 }
 
 func (r *Runner) cleanFilesystem(ctx context.Context) error {
-	if len(r.cfg.DeleteDirectories) == 0 && len(r.cfg.DeleteFiles) == 0 && r.cfg.GitGC == nil && !r.cfg.GitCleanBranches {
+	if len(r.cfg.DeleteDirectories) == 0 && len(r.cfg.DeleteFiles) == 0 && r.cfg.GitGC == nil && !r.cfg.GitCleanBranches && r.cfg.BazelClean == nil {
 		return nil
 	}
 
@@ -294,6 +297,11 @@ func (r *Runner) walkRoot(ctx context.Context, rootPath string, ignorePaths []st
 			if matchesPath(path, ignorePaths) {
 				slog.Debug("ignoring path", "path", r.displayPath(path))
 				return filepath.SkipDir
+			}
+
+			// Detect Bazel workspaces and run bazel clean.
+			if r.cfg.BazelClean != nil && r.hasBazel && isBazelWorkspace(path) {
+				totalSize += r.bazelClean(ctx, path)
 			}
 
 			// Detect git repo roots and run git maintenance.
@@ -563,6 +571,63 @@ func (r *Runner) cleanPaths(ctx context.Context) error {
 		slog.Info("total paths reclaimed", "size", config.FormatSize(totalSize))
 	}
 	return nil
+}
+
+func (r *Runner) bazelClean(ctx context.Context, workspacePath string) int64 {
+	args := []string{"clean"}
+	label := "bazel clean"
+	if r.cfg.BazelClean.ExpungeAsync {
+		args = append(args, "--expunge_async")
+		label = "bazel clean --expunge_async"
+	} else if r.cfg.BazelClean.Expunge {
+		args = append(args, "--expunge")
+		label = "bazel clean --expunge"
+	}
+
+	size := bazelOutputSize(ctx, workspacePath)
+
+	slog.Info("running "+label, "path", r.displayPath(workspacePath), "size", config.FormatSize(size))
+	if !r.confirm(fmt.Sprintf("run %s in %s (%s)?", label, r.displayPath(workspacePath), config.FormatSize(size))) {
+		return 0
+	}
+	if r.dryRun {
+		return size
+	}
+
+	cmd := exec.CommandContext(ctx, "bazel", args...)
+	cmd.Dir = workspacePath
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		slog.Warn("error running "+label, "path", workspacePath, "error", err, "stderr", strings.TrimSpace(stderr.String()))
+	}
+	return size
+}
+
+func bazelOutputSize(ctx context.Context, workspacePath string) int64 {
+	cmd := exec.CommandContext(ctx, "bazel", "info", "output_base")
+	cmd.Dir = workspacePath
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return 0
+	}
+	outputBase := strings.TrimSpace(out.String())
+	if outputBase == "" {
+		return 0
+	}
+	size, _ := dirSize(outputBase)
+	return size
+}
+
+func isBazelWorkspace(path string) bool {
+	markers := []string{"WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"}
+	for _, m := range markers {
+		if info, err := os.Stat(filepath.Join(path, m)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) cleanGo(ctx context.Context) error {

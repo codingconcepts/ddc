@@ -27,6 +27,7 @@ type Config struct {
 	GitCleanBranches    bool                  `yaml:"git_clean_branches"`
 	TempCleanup         bool                  `yaml:"temp_cleanup"`
 	GoClean             *GoClean              `yaml:"go_cleanup"`
+	BazelClean          *BazelClean           `yaml:"bazel_cleanup"`
 }
 
 type Threshold struct {
@@ -39,6 +40,12 @@ type GoClean struct {
 	ModCache  bool `yaml:"modcache"`
 	TestCache bool `yaml:"testcache"`
 	FuzzCache bool `yaml:"fuzzcache"`
+}
+
+type BazelClean struct {
+	Clean        bool `yaml:"clean"`
+	Expunge      bool `yaml:"expunge"`
+	ExpungeAsync bool `yaml:"expunge_async"`
 }
 
 func (t *Threshold) UnmarshalYAML(value *yaml.Node) error {
@@ -242,6 +249,19 @@ func (c Config) Print() {
 
 	if c.TempCleanup {
 		log.Println("temp_cleanup: true")
+	}
+
+	if c.BazelClean != nil {
+		log.Println("bazel_cleanup:")
+		if c.BazelClean.Clean {
+			log.Println("  clean: true")
+		}
+		if c.BazelClean.Expunge {
+			log.Println("  expunge: true")
+		}
+		if c.BazelClean.ExpungeAsync {
+			log.Println("  expunge_async: true")
+		}
 	}
 
 	if c.GoClean != nil {
