@@ -49,7 +49,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg.Print()
+	if *debug {
+		cfg.Print()
+	}
 
 	if *dryRun {
 		log.SetPrefix("[dry-run] ")
