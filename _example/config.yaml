@@ -94,18 +94,19 @@ delete_files:
   .zip: 10MB 6m
 
 delete_paths:
-  ~/.cache/bazel: 1GB 30d
+  ~/.cache/bazel: 100MB 1m
   ~/Library/Caches/bazel: 500MB
-  ~/.cache/pip: 500MB 3m
-  ~/.cache/yarn: 500MB 3m
-  ~/.cargo/registry: 1GB 3m
-  ~/.m2/repository: 1GB 6m
-  ~/.npm/_cacache: 500MB 3m
-  ~/.nuget/packages: 500MB 6m
-  ~/.pub-cache: 500MB 6m
-  ~/Library/Caches/Homebrew: 500MB 1m
-  ~/Library/Developer/CoreSimulator: 2GB 3m
-  ~/Library/Developer/Xcode/DerivedData: 1GB
+  ~/.cache/pip: 100MB 3m
+  ~/.cache/yarn: 100MB 3m
+  ~/.cargo/registry: 100MB 3m
+  ~/.m2/repository: 100MB 6m
+  ~/.npm/_cacache: 100MB 3m
+  ~/.nuget/packages: 100MB 6m
+  ~/.pub-cache: 100MB 6m
+  ~/Library/Caches/Homebrew: 100MB 1m
+  ~/Library/Developer/CoreSimulator: 100MB 1m
+  ~/Library/Developer/Xcode/DerivedData: 100MB
+  ~/Downloads: 50MB
 
 ignore_directories:
   - .git

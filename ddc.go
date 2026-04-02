@@ -68,6 +68,7 @@ func main() {
 			log.Printf("error stopping runner: %v", err)
 		}
 		cancel()
+		os.Exit(0)
 	}()
 
 	if err := r.Start(ctx); err != nil {
