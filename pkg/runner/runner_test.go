@@ -89,6 +89,7 @@ func TestDirSize(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(sub, "c.txt"), 500)
 
 	got, err := dirSize(dir)
@@ -123,7 +124,7 @@ func TestShortPath(t *testing.T) {
 	}
 }
 
-func TestParseDockerSize(t *testing.T) {
+func TestParseHumanSize(t *testing.T) {
 	tests := []struct {
 		input string
 		want  int64
@@ -131,6 +132,8 @@ func TestParseDockerSize(t *testing.T) {
 		{"1.23GB", 1_230_000_000},
 		{"456MB", 456_000_000},
 		{"78.9kB", 78_900},
+		{"78.9KB", 78_900},
+		{"1.5TB", 1_500_000_000_000},
 		{"1024B", 1024},
 		{"", 0},
 		{"invalid", 0},
@@ -138,9 +141,9 @@ func TestParseDockerSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := parseDockerSize(tt.input)
+			got := parseHumanSize(tt.input)
 			if got != tt.want {
-				t.Errorf("parseDockerSize(%q) = %d, want %d", tt.input, got, tt.want)
+				t.Errorf("parseHumanSize(%q) = %d, want %d", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -157,7 +160,7 @@ func TestWalkRootDeletesFiles(t *testing.T) {
 	txtFile := filepath.Join(dir, "keep.txt")
 	writeFile(t, txtFile, 100)
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -174,6 +177,7 @@ func TestWalkRootDeletesFiles(t *testing.T) {
 	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
 		t.Error("expected .log file to be deleted")
 	}
+
 	if _, err := os.Stat(txtFile); err != nil {
 		t.Error("expected .txt file to still exist")
 	}
@@ -185,7 +189,7 @@ func TestWalkRootQuietPreservesFiles(t *testing.T) {
 	logFile := filepath.Join(dir, "big.log")
 	writeFile(t, logFile, 2_000_000)
 
-	r := New(config.Config{}, false, false, false)
+	r := New(config.Config{}, true, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -211,13 +215,15 @@ func TestWalkRootDeletesDirectories(t *testing.T) {
 	if err := os.Mkdir(nmDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(nmDir, "pkg.js"), 5_000_000)
 
 	dirThresholds := map[string]config.Threshold{
 		"node_modules": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
+
 	size, err := r.walkRoot(context.Background(), dir, nil, dirThresholds, nil)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)
@@ -238,7 +244,7 @@ func TestWalkRootSkipsBelowSizeThreshold(t *testing.T) {
 	logFile := filepath.Join(dir, "small.log")
 	writeFile(t, logFile, 100)
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -267,10 +273,11 @@ func TestWalkRootRespectsAgeThreshold(t *testing.T) {
 	// Create an old file (should be deleted).
 	oldFile := filepath.Join(dir, "old.log")
 	writeFile(t, oldFile, 2_000_000)
+
 	old := time.Now().Add(-400 * 24 * time.Hour)
 	os.Chtimes(oldFile, old, old)
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000, Age: 365 * 24 * time.Hour},
 	}
@@ -287,6 +294,7 @@ func TestWalkRootRespectsAgeThreshold(t *testing.T) {
 	if _, err := os.Stat(recentFile); err != nil {
 		t.Error("recent file should be preserved")
 	}
+
 	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
 		t.Error("old file should be deleted")
 	}
@@ -299,9 +307,10 @@ func TestWalkRootIgnoresPaths(t *testing.T) {
 	if err := os.Mkdir(ignored, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(ignored, "big.log"), 5_000_000)
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
 	fileThresholds := map[string]config.Threshold{
 		".log": {Size: 1_000_000},
 	}
@@ -321,14 +330,16 @@ func TestWalkRootIgnoresPaths(t *testing.T) {
 }
 
 func TestDisplayPath(t *testing.T) {
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
 	got := r.displayPath("/a/b/c/d/e")
+
 	want := shortPath("/a/b/c/d/e", 3)
 	if got != want {
 		t.Errorf("displayPath() = %q, want %q", got, want)
 	}
 
-	rDebug := New(config.Config{}, false, true, false)
+	rDebug := New(config.Config{}, true, true, false)
+
 	got = rDebug.displayPath("/a/b/c/d/e")
 	if got != "/a/b/c/d/e" {
 		t.Errorf("displayPath(debug) = %q, want full path", got)
@@ -370,6 +381,7 @@ func TestCleanPaths(t *testing.T) {
 	if err := os.Mkdir(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(cacheDir, "data.bin"), 2_000_000)
 
 	cfg := config.Config{
@@ -377,7 +389,8 @@ func TestCleanPaths(t *testing.T) {
 			cacheDir: {Size: 1_000_000},
 		},
 	}
-	r := New(cfg, true, false, false)
+
+	r := New(cfg, false, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -395,6 +408,7 @@ func TestCleanPathsRespectsSizeThreshold(t *testing.T) {
 	if err := os.Mkdir(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(cacheDir, "tiny.bin"), 100)
 
 	cfg := config.Config{
@@ -402,7 +416,8 @@ func TestCleanPathsRespectsSizeThreshold(t *testing.T) {
 			cacheDir: {Size: 1_000_000},
 		},
 	}
-	r := New(cfg, true, false, false)
+
+	r := New(cfg, false, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -420,6 +435,7 @@ func TestCleanPathsRespectsAgeThreshold(t *testing.T) {
 	if err := os.Mkdir(recentDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(recentDir, "data.bin"), 2_000_000)
 
 	// Create an old directory (should be deleted).
@@ -427,7 +443,9 @@ func TestCleanPathsRespectsAgeThreshold(t *testing.T) {
 	if err := os.Mkdir(oldDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(oldDir, "data.bin"), 2_000_000)
+
 	old := time.Now().Add(-400 * 24 * time.Hour)
 	os.Chtimes(oldDir, old, old)
 
@@ -437,7 +455,8 @@ func TestCleanPathsRespectsAgeThreshold(t *testing.T) {
 			oldDir:    {Size: 1_000_000, Age: 365 * 24 * time.Hour},
 		},
 	}
-	r := New(cfg, true, false, false)
+
+	r := New(cfg, false, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -445,6 +464,7 @@ func TestCleanPathsRespectsAgeThreshold(t *testing.T) {
 	if _, err := os.Stat(recentDir); err != nil {
 		t.Error("recent directory should be preserved")
 	}
+
 	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
 		t.Error("old directory should be deleted")
 	}
@@ -457,6 +477,7 @@ func TestCleanPathsPreviewMode(t *testing.T) {
 	if err := os.Mkdir(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(cacheDir, "data.bin"), 2_000_000)
 
 	cfg := config.Config{
@@ -464,7 +485,8 @@ func TestCleanPathsPreviewMode(t *testing.T) {
 			cacheDir: {Size: 1_000_000},
 		},
 	}
-	r := New(cfg, false, false, false)
+
+	r := New(cfg, true, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() error: %v", err)
 	}
@@ -480,7 +502,8 @@ func TestCleanPathsSkipsMissing(t *testing.T) {
 			"/nonexistent/path/that/does/not/exist": {Size: 1},
 		},
 	}
-	r := New(cfg, true, false, false)
+
+	r := New(cfg, false, false, false)
 	if err := r.cleanPaths(context.Background()); err != nil {
 		t.Fatalf("cleanPaths() should not error on missing paths: %v", err)
 	}
@@ -494,6 +517,7 @@ func TestWalkRootDeletesNewDirectoryTypes(t *testing.T) {
 	if err := os.Mkdir(nextDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(nextDir, "build.js"), 5_000_000)
 
 	// Create a __pycache__ directory over threshold.
@@ -501,6 +525,7 @@ func TestWalkRootDeletesNewDirectoryTypes(t *testing.T) {
 	if err := os.Mkdir(pyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+
 	writeFile(t, filepath.Join(pyDir, "module.pyc"), 2_000_000)
 
 	dirThresholds := map[string]config.Threshold{
@@ -508,7 +533,8 @@ func TestWalkRootDeletesNewDirectoryTypes(t *testing.T) {
 		"__pycache__": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
+
 	size, err := r.walkRoot(context.Background(), dir, nil, dirThresholds, nil)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)
@@ -521,6 +547,7 @@ func TestWalkRootDeletesNewDirectoryTypes(t *testing.T) {
 	if _, err := os.Stat(nextDir); !os.IsNotExist(err) {
 		t.Error("expected .next to be deleted")
 	}
+
 	if _, err := os.Stat(pyDir); !os.IsNotExist(err) {
 		t.Error("expected __pycache__ to be deleted")
 	}
@@ -545,7 +572,8 @@ func TestWalkRootDeletesNewFileTypes(t *testing.T) {
 		".core": {Size: 1_000_000},
 	}
 
-	r := New(config.Config{}, true, false, false)
+	r := New(config.Config{}, false, false, false)
+
 	size, err := r.walkRoot(context.Background(), dir, nil, nil, fileThresholds)
 	if err != nil {
 		t.Fatalf("walkRoot() error: %v", err)
@@ -558,9 +586,11 @@ func TestWalkRootDeletesNewFileTypes(t *testing.T) {
 	if _, err := os.Stat(jarFile); !os.IsNotExist(err) {
 		t.Error("expected .jar file to be deleted")
 	}
+
 	if _, err := os.Stat(coreFile); !os.IsNotExist(err) {
 		t.Error("expected .core file to be deleted")
 	}
+
 	if _, err := os.Stat(txtFile); err != nil {
 		t.Error("expected .txt file to still exist")
 	}
@@ -568,9 +598,9 @@ func TestWalkRootDeletesNewFileTypes(t *testing.T) {
 
 func TestIsBazelWorkspace(t *testing.T) {
 	tests := []struct {
-		name   string
-		files  []string
-		want   bool
+		name  string
+		files []string
+		want  bool
 	}{
 		{"WORKSPACE file", []string{"WORKSPACE"}, true},
 		{"WORKSPACE.bazel file", []string{"WORKSPACE.bazel"}, true},
@@ -587,6 +617,7 @@ func TestIsBazelWorkspace(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+
 			got := isBazelWorkspace(dir)
 			if got != tt.want {
 				t.Errorf("isBazelWorkspace() = %v, want %v", got, tt.want)
@@ -597,6 +628,7 @@ func TestIsBazelWorkspace(t *testing.T) {
 
 func writeFile(t *testing.T, path string, size int) {
 	t.Helper()
+
 	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
 		t.Fatal(err)
 	}

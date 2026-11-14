@@ -11,15 +11,17 @@ import (
 
 	"github.com/codingconcepts/ddc/pkg/config"
 	"github.com/codingconcepts/ddc/pkg/runner"
+	"github.com/codingconcepts/ddc/pkg/ui"
 )
 
 func main() {
 	log.SetFlags(0)
 
 	configPath := flag.String("config", "~/.ddc/config.yaml", "absolute or relative path to the dcc config file")
-	quiet := flag.Bool("quiet", false, "execute deletions without prompting (default is preview mode)")
+	dryRun := flag.Bool("dry-run", false, "report what would be deleted without deleting anything")
 	debug := flag.Bool("debug", false, "enable verbose debug logging")
 	interactive := flag.Bool("interactive", false, "prompt before each deletion")
+
 	flag.Parse()
 
 	if *configPath == "" {
@@ -27,7 +29,9 @@ func main() {
 		os.Exit(2)
 	}
 
+	level := slog.LevelInfo
 	if *debug {
+		level = slog.LevelDebug
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
@@ -35,6 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error resolving config path: %v", err)
 	}
+
 	*configPath = resolved
 
 	if err := config.Ensure(*configPath); err != nil {
@@ -53,20 +58,29 @@ func main() {
 		cfg.Print()
 	}
 
-	if !*quiet {
-		log.SetPrefix("[dry-run] ")
+	var prefix string
+	if *dryRun {
+		prefix = ui.Dim("[dry-run]") + " "
+		log.SetPrefix(prefix)
 	}
 
-	r := runner.New(cfg, *quiet, *debug, *interactive)
+	// slog's own handlers escape control characters, which would print the
+	// colour codes literally, so logging goes through ui.Handler instead.
+	slog.SetDefault(slog.New(ui.NewHandler(os.Stderr, level, prefix)))
+
+	r := runner.New(cfg, *dryRun, *debug, *interactive)
 
 	sigCh := make(chan os.Signal, 1)
+
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
 		log.Println("received interrupt, stopping...")
+
 		if err := r.Stop(); err != nil {
 			log.Printf("error stopping runner: %v", err)
 		}
+
 		cancel()
 		os.Exit(0)
 	}()

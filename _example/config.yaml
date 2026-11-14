@@ -1,12 +1,19 @@
+age: 1m
+
 root_paths:
   - ~/dev
   - ~/Movies
+  - ~/Downloads
 
-docker_image_prefixes:
+docker_unused_images: 500MB 3m
+
+docker_image_keep_latest: 1
+
+docker_image_prefix_include:
   cockroachdb: 6w
-  codingconcepts:
+  codingconcepts: 1m
   golang: 3m
-  lldap:
+  lldap: 1m
   mongo: 6m
   mysql: 6m
   nginx: 6m
@@ -17,9 +24,18 @@ docker_image_prefixes:
   redpandadata:
   traefik: 6m
 
-docker_build_cache: 2w
+docker_image_prefix_exclude:
+  - container-registry.oracle.com
 
-docker_volume_prune: true
+docker_build_cache: 1w
+
+docker_volume_prune:
+  anonymous: true
+  named: false
+  age: 1m
+
+docker_container_prune: true
+docker_network_prune: true
 
 temp_cleanup: true
 
@@ -36,38 +52,40 @@ go_cleanup:
 
 homebrew_cleanup: true
 
-git_gc: 100MB
+git_gc:
+  size: 100MB
+  prune: 2w
 
 git_clean_branches: true
 
 delete_directories:
-  __pycache__: 1MB
-  .angular/cache: 50MB
+  __pycache__: 1MB 1m
+  .angular/cache: 50MB 1m
   .cache: 50MB 6m
-  .dart_tool: 10MB
-  .gradle: 100MB
-  .ipynb_checkpoints: 1MB
-  .mypy_cache: 10MB
-  .next: 50MB
-  .nuxt: 50MB
-  .parcel-cache: 50MB
-  .pytest_cache: 1MB
+  .dart_tool: 10MB 1m
+  .gradle: 100MB 1m
+  .ipynb_checkpoints: 1MB 1m
+  .mypy_cache: 10MB 1m
+  .next: 50MB 1m
+  .nuxt: 50MB 1m
+  .parcel-cache: 50MB 1m
+  .pytest_cache: 1MB 1m
   .terraform/providers: 10MB 6m
   .tox: 100MB 6m
-  .turbo: 50MB
+  .turbo: 50MB 1m
   .venv: 100MB 6m
   build: 50MB 6m
   coverage: 10MB 6m
   dist: 50MB 6m
   elm-stuff: 50MB
-  node_modules: 10MB
+  node_modules: 10MB 1m
   out: 50MB 6m
-  Pods: 100MB
+  Pods: 100MB 1m
   target: 100MB 6m
   vendor: 50MB 6m
   venv: 100MB 6m
-  zig-cache: 50MB
-  zig-out: 50MB
+  zig-cache: 50MB 1m
+  zig-out: 50MB 1m
 
 delete_files:
   .core: 1MB 1w
@@ -95,7 +113,6 @@ delete_files:
 
 delete_paths:
   ~/.cache/bazel: 100MB 1m
-  ~/Library/Caches/bazel: 500MB
   ~/.cache/pip: 100MB 3m
   ~/.cache/yarn: 100MB 3m
   ~/.cargo/registry: 100MB 3m
@@ -103,10 +120,11 @@ delete_paths:
   ~/.npm/_cacache: 100MB 3m
   ~/.nuget/packages: 100MB 6m
   ~/.pub-cache: 100MB 6m
-  ~/Library/Caches/Homebrew: 100MB 1m
+  ~/Library/Caches/Google: 1GB
+  ~/Library/Caches/rancher-desktop-updater: 500MB
+  ~/Library/Caches/goimports: 500MB
   ~/Library/Developer/CoreSimulator: 100MB 1m
   ~/Library/Developer/Xcode/DerivedData: 100MB
-  ~/Downloads: 50MB
 
 ignore_directories:
   - .git
